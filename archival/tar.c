@@ -162,8 +162,8 @@
 
 #if !ENABLE_FEATURE_SEAMLESS_GZ && !ENABLE_FEATURE_SEAMLESS_BZ2
 /* Do not pass gzip flag to writeTarFile() */
-#define writeTarFile(tar_fd, verboseFlag, recurseFlags, include, exclude, gzip) \
-	writeTarFile(tar_fd, verboseFlag, recurseFlags, include, exclude)
+#define writeTarFile(tar_fd, verboseFlag, recurseFlags, optFlags, include, exclude, gzip) \
+	writeTarFile(tar_fd, verboseFlag, optFlags, recurseFlags, include, exclude)
 #endif
 
 
@@ -187,6 +187,8 @@ typedef struct TarBallInfo {
 	int tarFd;                      /* Open-for-write file descriptor
 	                                 * for the tarball */
 	int verboseFlag;                /* Whether to print extra stuff or not */
+	unsigned optFlags;              /* all command line flags */
+
 	const llist_t *excludeList;     /* List of files to not include */
 	HardLinkInfo *hlInfoHead;       /* Hard Link Tracking Information */
 	HardLinkInfo *hlInfo;           /* Hard Link Info for the current file */
@@ -210,6 +212,7 @@ enum {
 	CONTTYPE = '7',		/* reserved */
 	GNULONGLINK = 'K',	/* GNU long (>100 chars) link name */
 	GNULONGNAME = 'L',	/* GNU long (>100 chars) file name */
+	EXTTYPE = 'x',		/* ext metadata for next file, store selinux_context */
 };
 
 /* Might be faster (and bigger) if the dev/ino were stored in numeric order;) */
@@ -351,6 +354,34 @@ static void writeLongname(int fd, int type, const char *name, int dir)
 }
 #endif
 
+#if ENABLE_FEATURE_TAR_SELINUX
+# define SELINUX_CONTEXT_KEYWORD "RHT.security.selinux"
+/* Write 2 blocks : extended file header + selinux context */
+static int writeSeHeader(int fd, const char *con, struct tar_header_t *header)
+{
+	char block[TAR_BLOCK_SIZE];
+	struct tar_header_t hd;
+
+	int sz = sizeof(SELINUX_CONTEXT_KEYWORD) + 4 + strlen(con);
+	if (sz >= 100) sz++; /* another ascii digit for size */
+	if (sz > TAR_BLOCK_SIZE)
+		return FALSE;
+
+	memset(&block, 0, TAR_BLOCK_SIZE);
+	sprintf(block, "%d %s=%s\n", sz, SELINUX_CONTEXT_KEYWORD, con);
+
+	/* write duplicated file entry */
+	memcpy(&hd, header, sizeof(hd));
+	hd.typeflag = EXTTYPE;
+	PUT_OCTAL(hd.size, sz);
+	chksum_and_xwrite(fd, &hd);
+
+	/* write selinux context */
+	xwrite(fd, &block, TAR_BLOCK_SIZE);
+	return TRUE;
+}
+#endif
+
 /* Write out a tar header for the specified file/directory/whatever */
 static int writeTarHeader(struct TarBallInfo *tbInfo,
 		const char *header_name, const char *fileName, struct stat *statbuf)
@@ -465,6 +496,18 @@ static int writeTarHeader(struct TarBallInfo *tbInfo,
 	if (header.name[sizeof(header.name)-1])
 		writeLongname(tbInfo->tarFd, GNULONGNAME,
 				header_name, S_ISDIR(statbuf->st_mode));
+#endif
+
+#if ENABLE_FEATURE_TAR_SELINUX
+	if (is_selinux_enabled() && (tbInfo->optFlags & ARCHIVE_STORE_SELINUX)) {
+		security_context_t sid;
+		lgetfilecon(fileName, &sid);
+		if (sid) {
+			// optional extended block
+			writeSeHeader(tbInfo->tarFd, sid, &header);
+			freecon(sid);
+		}
+	}
 #endif
 
 	/* Now write the header out to disk */
@@ -699,6 +742,7 @@ static void NOINLINE vfork_compressor(int tar_fd, int gzip)
 
 /* gcc 4.2.1 inlines it, making code bigger */
 static NOINLINE int writeTarFile(int tar_fd, int verboseFlag,
+	unsigned optFlags,
 	int recurseFlags, const llist_t *include,
 	const llist_t *exclude, int gzip)
 {
@@ -708,6 +752,7 @@ static NOINLINE int writeTarFile(int tar_fd, int verboseFlag,
 	tbInfo.hlInfoHead = NULL;
 	tbInfo.tarFd = tar_fd;
 	tbInfo.verboseFlag = verboseFlag;
+	tbInfo.optFlags = optFlags;
 
 	/* Store the stat info for the tarball's file, so
 	 * can avoid including the tarball into itself....  */
@@ -762,6 +807,7 @@ static NOINLINE int writeTarFile(int tar_fd, int verboseFlag,
 }
 #else
 int writeTarFile(int tar_fd, int verboseFlag,
+	unsigned optFlags,
 	int recurseFlags, const llist_t *include,
 	const llist_t *exclude, int gzip);
 #endif /* FEATURE_TAR_CREATE */
@@ -797,6 +843,7 @@ static llist_t *append_file_list_to_list(llist_t *list)
 //usage:	IF_FEATURE_SEAMLESS_LZMA("a")
 //usage:	IF_FEATURE_TAR_CREATE("h")
 //usage:	IF_FEATURE_TAR_NOPRESERVE_TIME("m")
+//usage:	IF_FEATURE_TAR_SELINUX("p")
 //usage:	"vO] "
 //usage:	IF_FEATURE_TAR_FROM("[-X FILE] [-T FILE] ")
 //usage:	"[-f TARFILE] [-C DIR] [FILE]..."
@@ -841,6 +888,9 @@ static llist_t *append_file_list_to_list(llist_t *list)
 //usage:	)
 //usage:     "\n	X	File with names to exclude"
 //usage:     "\n	T	File with names to include"
+//usage:	)
+//usage:	IF_FEATURE_TAR_SELINUX(
+//usage:     "\n	p	Store SELinux contexts"
 //usage:	)
 //usage:
 //usage:#define tar_example_usage
@@ -1077,6 +1127,11 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 	if (opt & OPT_NOPRESERVE_PERM)
 		tar_handle->ah_flags |= ARCHIVE_DONT_RESTORE_PERM;
 
+#if ENABLE_FEATURE_TAR_SELINUX
+	if (opt & OPT_P)
+		tar_handle->ah_flags |= ARCHIVE_STORE_SELINUX;
+#endif
+
 	if (opt & OPT_OVERWRITE) {
 		tar_handle->ah_flags &= ~ARCHIVE_UNLINK_OLD;
 		tar_handle->ah_flags |= ARCHIVE_O_TRUNC;
@@ -1163,6 +1218,7 @@ int tar_main(int argc UNUSED_PARAM, char **argv)
 #endif
 		/* NB: writeTarFile() closes tar_handle->src_fd */
 		return writeTarFile(tar_handle->src_fd, verboseFlag,
+				tar_handle->ah_flags,
 				(opt & OPT_DEREFERENCE ? ACTION_FOLLOWLINKS : 0)
 				| (opt & OPT_NORECURSION ? 0 : ACTION_RECURSE),
 				tar_handle->accept,
