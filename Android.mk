@@ -42,9 +42,16 @@ ifeq ($(TARGET_ARCH),mips)
     BUSYBOX_CROSS_COMPILER_PREFIX := mipsel-linux-android-
 endif
 
-KERNEL_MODULES_DIR ?= /system/lib/modules
+BB_PREPARE_FLAGS:=
+ifeq ($(HOST_OS),darwin)
+    BB_HOSTCC := $(ANDROID_BUILD_TOP)/prebuilts/gcc/darwin-x86/host/i686-apple-darwin-4.2.1/bin/i686-apple-darwin11-gcc
+    BB_PREPARE_FLAGS := HOSTCC=$(BB_HOSTCC)
+endif
 
 bb_gen := $(TARGET_OUT_INTERMEDIATES)/busybox
+ifeq (,$(findstring $(ANDROID_BUILD_TOP),$(TARGET_OUT_INTERMEDIATES)))
+    bb_gen := $(ANDROID_BUILD_TOP)/$(TARGET_OUT_INTERMEDIATES)/busybox
+endif
 
 LOCAL_MODULE := busybox_prepare_full
 LOCAL_MODULE_TAGS := eng debug
@@ -53,18 +60,17 @@ LOCAL_MODULE_PATH := $(bb_gen)/full
 LOCAL_SRC_FILES := .config-full
 $(LOCAL_MODULE):
 	@echo -e ${CL_GRN}"Prepare config for busybox binary"${CL_RST}
+	@cd $(ANDROID_BUILD_TOP)
 	@rm -rf $(bb_gen)/full
 	@mkdir -p $(bb_gen)/full/include
 	cat $(BB_PATH)/.config-full > $(bb_gen)/full/.config
 	@echo "CONFIG_CROSS_COMPILER_PREFIX=\"$(BUSYBOX_CROSS_COMPILER_PREFIX)\"" >> $(bb_gen)/full/.config
-	cd $(BB_PATH) && make prepare O=$(bb_gen)/full
+	make -C $(BB_PATH) prepare O=$(bb_gen)/full $(BB_PREPARE_FLAGS)
 
 include $(BUILD_PREBUILT)
 
 LOCAL_PATH := $(BB_PATH)
 include $(CLEAR_VARS)
-
-bb_gen := $(TARGET_OUT_INTERMEDIATES)/busybox
 
 LOCAL_MODULE := busybox_prepare_minimal
 LOCAL_MODULE_TAGS := eng debug
@@ -73,11 +79,12 @@ LOCAL_MODULE_PATH := $(bb_gen)/minimal
 LOCAL_SRC_FILES := .config-minimal
 $(LOCAL_MODULE):
 	@echo -e ${CL_GRN}"Prepare config for libbusybox"${CL_RST}
+	@cd $(ANDROID_BUILD_TOP)
 	@rm -rf $(bb_gen)/minimal
 	@mkdir -p $(bb_gen)/minimal/include
 	cat $(BB_PATH)/.config-minimal > $(bb_gen)/minimal/.config
 	@echo "CONFIG_CROSS_COMPILER_PREFIX=\"$(BUSYBOX_CROSS_COMPILER_PREFIX)\"" >> $(bb_gen)/minimal/.config
-	cd $(BB_PATH) && make prepare O=$(bb_gen)/minimal
+	make -C $(BB_PATH) prepare O=$(bb_gen)/minimal $(BB_PREPARE_FLAGS)
 
 include $(BUILD_PREBUILT)
 
@@ -174,7 +181,7 @@ LOCAL_CFLAGS += \
   -Dgenerate_uuid=busybox_generate_uuid
 LOCAL_MODULE := libbusybox
 LOCAL_MODULE_TAGS := eng debug
-LOCAL_STATIC_LIBRARIES := libcutils libc libm libselinux libsepol
+LOCAL_STATIC_LIBRARIES := libcutils libc libm libselinux
 LOCAL_ADDITIONAL_DEPENDENCIES := busybox_prepare_minimal
 include $(BUILD_STATIC_LIBRARY)
 
@@ -197,7 +204,7 @@ LOCAL_MODULE := busybox
 LOCAL_MODULE_TAGS := eng debug
 LOCAL_MODULE_PATH := $(TARGET_OUT_OPTIONAL_EXECUTABLES)
 LOCAL_SHARED_LIBRARIES := libc libcutils libm
-LOCAL_STATIC_LIBRARIES := libclearsilverregex libuclibcrpc libselinux libsepol
+LOCAL_STATIC_LIBRARIES := libclearsilverregex libuclibcrpc libselinux
 LOCAL_ADDITIONAL_DEPENDENCIES := busybox_prepare_full
 include $(BUILD_EXECUTABLE)
 
@@ -243,7 +250,7 @@ LOCAL_FORCE_STATIC_EXECUTABLE := true
 LOCAL_MODULE := static_busybox
 LOCAL_MODULE_STEM := busybox
 LOCAL_MODULE_TAGS := eng debug
-LOCAL_STATIC_LIBRARIES := libclearsilverregex libc libcutils libm libuclibcrpc libselinux libsepol
+LOCAL_STATIC_LIBRARIES := libclearsilverregex libc libcutils libm libuclibcrpc libselinux
 LOCAL_MODULE_CLASS := UTILITY_EXECUTABLES
 LOCAL_MODULE_PATH := $(PRODUCT_OUT)/utilities
 LOCAL_UNSTRIPPED_PATH := $(PRODUCT_OUT)/symbols/utilities
