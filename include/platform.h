@@ -353,7 +353,7 @@ typedef unsigned smalluint;
 #endif
 
 #if defined(ANDROID) || defined(__ANDROID__)
-# define BB_ADDITIONAL_PATH ":/system/sbin:/system/bin:/system/xbin"
+# define BB_ADDITIONAL_PATH ":/vendor/bin:/system/sbin:/system/bin:/system/xbin"
 # define SYS_ioprio_set __NR_ioprio_set
 # define SYS_ioprio_get __NR_ioprio_get
 #endif
@@ -454,11 +454,13 @@ typedef unsigned smalluint;
 
 #if defined(ANDROID) || defined(__ANDROID__)
 # undef HAVE_DPRINTF
-# undef HAVE_STPCPY
 # undef HAVE_STRCHRNUL
 # undef HAVE_STRVERSCMP
 # undef HAVE_UNLOCKED_LINE_OPS
 # undef HAVE_NET_ETHERNET_H
+# ifndef __i386__
+#  undef HAVE_STPCPY
+# endif
 #endif
 
 /*

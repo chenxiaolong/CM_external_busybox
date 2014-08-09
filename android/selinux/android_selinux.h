@@ -93,6 +93,25 @@ extern void matchpathcon_checkmatches(char *str);
  */
 extern int selinux_file_context_verify(const char *path, mode_t mode);
 
+/* Get the default security context for a user session for 'user'
+   spawned by 'fromcon' and set *newcon to refer to it.  The context
+   will be one of those authorized by the policy, but the selection
+   of a default is subject to user customizable preferences.
+   If 'fromcon' is NULL, defaults to current context.
+   Returns 0 on success or -1 otherwise.
+   Caller must free via freecon. */
+extern int get_default_context(const char* user, const char* fromcon,
+			char ** newcon);
+
+/* Check a permission in the passwd class.
+   Return 0 if granted or -1 otherwise. */
+#define PASSWD__PASSWD  0x001UL
+#define PASSWD__CHFN    0x002UL
+#define PASSWD__CHSH    0x004UL
+#define PASSWD__ROOTOK  0x008UL
+#define PASSWD__CRONTAB 0x010UL
+extern int selinux_check_passwd_access(access_vector_t requested);
+
 #define lgetfilecon_raw(path, context) \
 	lgetfilecon(path, context)
 
@@ -104,6 +123,9 @@ extern int selinux_file_context_verify(const char *path, mode_t mode);
 
 #define security_canonicalize_context_raw(context, newctx) \
 	security_canonicalize_context(context, newctx)
+
+#define getprevcon_raw(context) \
+	getprevcon(context)
 
 #define is_context_customizable(ctx) false
 

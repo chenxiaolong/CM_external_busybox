@@ -20,7 +20,7 @@ LOCAL_C_INCLUDES := $(BB_PATH)/android/librpc
 LOCAL_MODULE := libuclibcrpc
 LOCAL_CFLAGS += -fno-strict-aliasing
 ifeq ($(BIONIC_L),true)
-LOCAL_CFLAGS += -DBIONIC_L
+LOCAL_CFLAGS += -DBIONIC_ICS -DBIONIC_L
 endif
 include $(BUILD_STATIC_LIBRARY)
 
@@ -33,10 +33,10 @@ include $(CLEAR_VARS)
 
 # Explicitly set an architecture specific CONFIG_CROSS_COMPILER_PREFIX
 ifeq ($(TARGET_ARCH),arm)
-    BUSYBOX_CROSS_COMPILER_PREFIX := arm-eabi-
+    BUSYBOX_CROSS_COMPILER_PREFIX := arm-linux-androideabi-
 endif
 ifeq ($(TARGET_ARCH),x86)
-    BUSYBOX_CROSS_COMPILER_PREFIX := i686-linux-android-
+    BUSYBOX_CROSS_COMPILER_PREFIX := $(if $(filter x86_64,$(HOST_ARCH)),x86_64,i686)-linux-android-
 endif
 ifeq ($(TARGET_ARCH),mips)
     BUSYBOX_CROSS_COMPILER_PREFIX := mipsel-linux-android-
@@ -48,45 +48,31 @@ ifeq ($(HOST_OS),darwin)
     BB_PREPARE_FLAGS := HOSTCC=$(BB_HOSTCC)
 endif
 
-bb_gen := $(TARGET_OUT_INTERMEDIATES)/busybox
-ifeq (,$(findstring $(ANDROID_BUILD_TOP),$(TARGET_OUT_INTERMEDIATES)))
-    bb_gen := $(ANDROID_BUILD_TOP)/$(TARGET_OUT_INTERMEDIATES)/busybox
-endif
+# On aosp (master), path is relative, not on cm (kitkat)
+bb_gen := $(abspath $(TARGET_OUT_INTERMEDIATES)/busybox)
 
-LOCAL_MODULE := busybox_prepare_full
-LOCAL_MODULE_TAGS := eng debug
-LOCAL_MODULE_CLASS := ETC
-LOCAL_MODULE_PATH := $(bb_gen)/full
-LOCAL_SRC_FILES := .config-full
-$(LOCAL_MODULE):
-	@echo -e ${CL_GRN}"Prepare config for busybox binary"${CL_RST}
-	@cd $(ANDROID_BUILD_TOP)
+busybox_prepare_full := $(bb_gen)/full/.config
+$(busybox_prepare_full): $(BB_PATH)/busybox-full.config
+	@echo -e ${CL_YLW}"Prepare config for busybox binary"${CL_RST}
 	@rm -rf $(bb_gen)/full
-	@mkdir -p $(bb_gen)/full/include
-	cat $(BB_PATH)/.config-full > $(bb_gen)/full/.config
-	@echo "CONFIG_CROSS_COMPILER_PREFIX=\"$(BUSYBOX_CROSS_COMPILER_PREFIX)\"" >> $(bb_gen)/full/.config
-	make -C $(BB_PATH) prepare O=$(bb_gen)/full $(BB_PREPARE_FLAGS)
+	@rm -rf $(TARGET_OUT_INTERMEDIATES)/EXECUTABLES/busybox_intermediates
+	@mkdir -p $(TARGET_OUT_INTERMEDIATES)/EXECUTABLES/busybox_intermediates
+	@touch $(TARGET_OUT_INTERMEDIATES)/EXECUTABLES/busybox_intermediates/import_includes
+	@mkdir -p $(@D)
+	@cat $^ > $@ && echo "CONFIG_CROSS_COMPILER_PREFIX=\"$(BUSYBOX_CROSS_COMPILER_PREFIX)\"" >> $@
+	+make -C $(BB_PATH) prepare O=$(@D) $(BB_PREPARE_FLAGS)
 
-include $(BUILD_PREBUILT)
-
-LOCAL_PATH := $(BB_PATH)
-include $(CLEAR_VARS)
-
-LOCAL_MODULE := busybox_prepare_minimal
-LOCAL_MODULE_TAGS := eng debug
-LOCAL_MODULE_CLASS := ETC
-LOCAL_MODULE_PATH := $(bb_gen)/minimal
-LOCAL_SRC_FILES := .config-minimal
-$(LOCAL_MODULE):
-	@echo -e ${CL_GRN}"Prepare config for libbusybox"${CL_RST}
-	@cd $(ANDROID_BUILD_TOP)
+busybox_prepare_minimal := $(bb_gen)/minimal/.config
+$(busybox_prepare_minimal): $(BB_PATH)/busybox-minimal.config
+	@echo -e ${CL_YLW}"Prepare config for libbusybox"${CL_RST}
 	@rm -rf $(bb_gen)/minimal
-	@mkdir -p $(bb_gen)/minimal/include
-	cat $(BB_PATH)/.config-minimal > $(bb_gen)/minimal/.config
-	@echo "CONFIG_CROSS_COMPILER_PREFIX=\"$(BUSYBOX_CROSS_COMPILER_PREFIX)\"" >> $(bb_gen)/minimal/.config
-	make -C $(BB_PATH) prepare O=$(bb_gen)/minimal $(BB_PREPARE_FLAGS)
+	@rm -rf $(TARGET_OUT_INTERMEDIATES)/STATIC_LIBRARIES/libbusybox_intermediates
+	@mkdir -p $(TARGET_OUT_INTERMEDIATES)/STATIC_LIBRARIES/libbusybox_intermediates
+	@touch $(TARGET_OUT_INTERMEDIATES)/STATIC_LIBRARIES/libbusybox_intermediates/import_includes
+	@mkdir -p $(@D)
+	@cat $^ > $@ && echo "CONFIG_CROSS_COMPILER_PREFIX=\"$(BUSYBOX_CROSS_COMPILER_PREFIX)\"" >> $@
+	+make -C $(BB_PATH) prepare O=$(@D) $(BB_PREPARE_FLAGS)
 
-include $(BUILD_PREBUILT)
 
 #####################################################################
 
@@ -99,36 +85,20 @@ SUBMAKE := make -s -C $(BB_PATH) CC=$(CC)
 
 BUSYBOX_SRC_FILES = \
 	$(shell cat $(BB_PATH)/busybox-$(BUSYBOX_CONFIG).sources) \
-	libbb/android.c
+	android/libc/mktemp.c \
+	android/libc/pty.c \
+	android/android.c
 
-ifeq ($(TARGET_ARCH),arm)
-    BUSYBOX_SRC_FILES += \
-	android/libc/arch-arm/syscalls/adjtimex.S \
-	android/libc/arch-arm/syscalls/getsid.S \
-	android/libc/arch-arm/syscalls/stime.S \
-	android/libc/arch-arm/syscalls/swapon.S \
-	android/libc/arch-arm/syscalls/swapoff.S \
-	android/libc/arch-arm/syscalls/sysinfo.S
+BUSYBOX_ASM_FILES =
+ifneq ($(BIONIC_L),true)
+    BUSYBOX_ASM_FILES += swapon.S swapoff.S sysinfo.S
 endif
 
-ifeq ($(TARGET_ARCH),x86)
+ifneq ($(filter arm x86 mips,$(TARGET_ARCH)),)
     BUSYBOX_SRC_FILES += \
-	android/libc/arch-x86/syscalls/adjtimex.S \
-	android/libc/arch-x86/syscalls/getsid.S \
-	android/libc/arch-x86/syscalls/stime.S \
-	android/libc/arch-x86/syscalls/swapon.S \
-	android/libc/arch-x86/syscalls/swapoff.S \
-	android/libc/arch-x86/syscalls/sysinfo.S
-endif
-
-ifeq ($(TARGET_ARCH),mips)
-    BUSYBOX_SRC_FILES += \
-	android/libc/arch-mips/syscalls/adjtimex.S \
-	android/libc/arch-mips/syscalls/getsid.S \
-	android/libc/arch-mips/syscalls/stime.S \
-	android/libc/arch-mips/syscalls/swapon.S \
-	android/libc/arch-mips/syscalls/swapoff.S \
-	android/libc/arch-mips/syscalls/sysinfo.S
+        $(addprefix android/libc/arch-$(TARGET_ARCH)/syscalls/,$(BUSYBOX_ASM_FILES))
+else
+    $(error $(TARGET_ARCH) is not supported)
 endif
 
 BUSYBOX_C_INCLUDES = \
@@ -144,7 +114,7 @@ BUSYBOX_C_INCLUDES = \
 	$(BB_PATH)/android/librpc
 
 BUSYBOX_CFLAGS = \
-	-Werror=implicit \
+	-Werror=implicit -Wno-clobbered \
 	-DNDEBUG \
 	-DANDROID \
 	-fno-strict-aliasing \
@@ -153,13 +123,15 @@ BUSYBOX_CFLAGS = \
 	-D'CONFIG_DEFAULT_MODULES_DIR="$(KERNEL_MODULES_DIR)"' \
 	-D'BB_VER="$(strip $(shell $(SUBMAKE) kernelversion)) $(BUSYBOX_SUFFIX)"' -DBB_BT=AUTOCONF_TIMESTAMP
 
-# to handle differences in ICS/JB (ipv6)
-ifeq ($(BIONIC_ICS),true)
-    BUSYBOX_CFLAGS += -DBIONIC_ICS
-endif
-
 ifeq ($(BIONIC_L),true)
     BUSYBOX_CFLAGS += -DBIONIC_L
+    BUSYBOX_AFLAGS += -DBIONIC_L
+    # include changes for ICS/JB/KK
+    BIONIC_ICS := true
+endif
+
+ifeq ($(BIONIC_ICS),true)
+    BUSYBOX_CFLAGS += -DBIONIC_ICS
 endif
 
 
@@ -175,14 +147,14 @@ LOCAL_CFLAGS += \
   -Dgetusershell=busybox_getusershell \
   -Dsetusershell=busybox_setusershell \
   -Dendusershell=busybox_endusershell \
-  -Dttyname_r=busybox_ttyname_r \
   -Dgetmntent=busybox_getmntent \
   -Dgetmntent_r=busybox_getmntent_r \
   -Dgenerate_uuid=busybox_generate_uuid
+LOCAL_ASFLAGS := $(BUSYBOX_AFLAGS)
 LOCAL_MODULE := libbusybox
 LOCAL_MODULE_TAGS := eng debug
 LOCAL_STATIC_LIBRARIES := libcutils libc libm libselinux
-LOCAL_ADDITIONAL_DEPENDENCIES := busybox_prepare_minimal
+LOCAL_ADDITIONAL_DEPENDENCIES := $(busybox_prepare_minimal)
 include $(BUILD_STATIC_LIBRARY)
 
 
@@ -199,13 +171,13 @@ LOCAL_SRC_FILES += android/libc/__set_errno.c
 endif
 LOCAL_C_INCLUDES := $(bb_gen)/full/include $(BUSYBOX_C_INCLUDES)
 LOCAL_CFLAGS := $(BUSYBOX_CFLAGS)
-LOCAL_LDFLAGS += -Wl,--no-fatal-warnings
+LOCAL_ASFLAGS := $(BUSYBOX_AFLAGS)
 LOCAL_MODULE := busybox
 LOCAL_MODULE_TAGS := eng debug
 LOCAL_MODULE_PATH := $(TARGET_OUT_OPTIONAL_EXECUTABLES)
 LOCAL_SHARED_LIBRARIES := libc libcutils libm
 LOCAL_STATIC_LIBRARIES := libclearsilverregex libuclibcrpc libselinux
-LOCAL_ADDITIONAL_DEPENDENCIES := busybox_prepare_full
+LOCAL_ADDITIONAL_DEPENDENCIES := $(busybox_prepare_full)
 include $(BUILD_EXECUTABLE)
 
 BUSYBOX_LINKS := $(shell cat $(BB_PATH)/busybox-$(BUSYBOX_CONFIG).links)
@@ -241,11 +213,10 @@ LOCAL_CFLAGS += \
   -Dgetusershell=busybox_getusershell \
   -Dsetusershell=busybox_setusershell \
   -Dendusershell=busybox_endusershell \
-  -Dttyname_r=busybox_ttyname_r \
   -Dgetmntent=busybox_getmntent \
   -Dgetmntent_r=busybox_getmntent_r \
   -Dgenerate_uuid=busybox_generate_uuid
-LOCAL_LDFLAGS += -Wl,--no-fatal-warnings
+LOCAL_ASFLAGS := $(BUSYBOX_AFLAGS)
 LOCAL_FORCE_STATIC_EXECUTABLE := true
 LOCAL_MODULE := static_busybox
 LOCAL_MODULE_STEM := busybox
@@ -254,7 +225,7 @@ LOCAL_STATIC_LIBRARIES := libclearsilverregex libc libcutils libm libuclibcrpc l
 LOCAL_MODULE_CLASS := UTILITY_EXECUTABLES
 LOCAL_MODULE_PATH := $(PRODUCT_OUT)/utilities
 LOCAL_UNSTRIPPED_PATH := $(PRODUCT_OUT)/symbols/utilities
-LOCAL_ADDITIONAL_DEPENDENCIES := busybox_prepare_full
+LOCAL_ADDITIONAL_DEPENDENCIES := $(busybox_prepare_full)
 include $(BUILD_EXECUTABLE)
 
 # Include in boot.img

@@ -4,6 +4,12 @@ SUBLEVEL = 1
 EXTRAVERSION =
 NAME = bionic
 
+# prevent local tree builds in bionic,
+# but allow initial version check (SUBMAKE)
+ifeq (,$(filter s, $(MAKEFLAGS)))
+    KBUILD_OUTPUT ?= $(OUT)/obj/busybox
+endif
+
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
 # More info can be located in ./README
@@ -104,7 +110,8 @@ ifneq ($(KBUILD_OUTPUT),)
 saved-output := $(KBUILD_OUTPUT)
 KBUILD_OUTPUT := $(shell cd $(KBUILD_OUTPUT) && /bin/pwd)
 $(if $(KBUILD_OUTPUT),, \
-     $(error output directory "$(saved-output)" does not exist))
+     $(warning output directory "$(saved-output)" does not exist) \
+	$(error On AOSP repo, type 'mma' to build or set O=out/<folder> ))
 
 PHONY += $(MAKECMDGOALS)
 
