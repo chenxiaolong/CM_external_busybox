@@ -216,25 +216,10 @@ LOCAL_ASFLAGS := $(BUSYBOX_AFLAGS)
 LOCAL_FORCE_STATIC_EXECUTABLE := true
 LOCAL_MODULE := static_busybox
 LOCAL_MODULE_STEM := busybox
-LOCAL_MODULE_TAGS := eng debug
+LOCAL_MODULE_TAGS := optional
 LOCAL_STATIC_LIBRARIES := libclearsilverregex libc libcutils libm libuclibcrpc libselinux
 LOCAL_MODULE_CLASS := UTILITY_EXECUTABLES
 LOCAL_MODULE_PATH := $(PRODUCT_OUT)/utilities
 LOCAL_UNSTRIPPED_PATH := $(PRODUCT_OUT)/symbols/utilities
 LOCAL_ADDITIONAL_DEPENDENCIES := $(busybox_prepare_full)
 include $(BUILD_EXECUTABLE)
-
-# Include in boot.img
-BUSYBOX_BOOT := $(TARGET_ROOT_OUT_SBIN)/busybox-static
-$(BUSYBOX_BOOT): BUSYBOX_BINARY := $(LOCAL_MODULE_STEM)
-$(BUSYBOX_BOOT): $(LOCAL_INSTALLED_MODULE) $(LOCAL_PATH)/Android.mk
-	@mkdir -p $(dir $@)
-	@rm -rf $@
-	$(hide) cp $(PRODUCT_OUT)/utilities/$(BUSYBOX_BINARY) $@
-
-ALL_DEFAULT_INSTALLED_MODULES += $(BUSYBOX_BOOT)
-
-# We need this so that the installed files could be picked up based on the
-# local module name
-ALL_MODULES.$(LOCAL_MODULE).INSTALLED := \
-    $(ALL_MODULES.$(LOCAL_MODULE).INSTALLED) $(BUSYBOX_BOOT)
